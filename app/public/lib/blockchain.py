@@ -1,12 +1,16 @@
 import hashlib
 import json
+from urllib.parse import urlparse
 
 from time import time
+
+import requests
 
 class Blockchain(object):
     def __init__(self):
         self.chain = []
         self.current_transaction = []
+        self.nodes = set()
 
         # Создание блока генезиса
         self.new_block(previous_hash=1, proof=100)
@@ -67,6 +71,80 @@ class Blockchain(object):
             proof += 1
 
         return proof
+
+    def register_node(self, address):
+        """
+        Вносим новый узел в список узлов
+
+        :param address: <str> адрес узла , http://192.168.0.7:5000
+        :return: None
+        """
+
+        parsed_url = urlparse(address)
+        self.nodes.add(parsed_url.netloc)
+
+    def valid_chain(self, chain: list):
+        """
+        Проверяем, является ли внесённый в блок хэш корректным
+
+        :param chain: <list> blockchain
+        :return: <bool> True - если корректный, False - если нет
+        """
+
+        last_block = chain[0]
+        current_index = 1
+
+        while current_index < len(chain):
+            block = chain[current_index]
+            print(f'{last_block}')
+            print(f'{block}')
+            print("\n------------\n")
+            # Проверим правильность хэша блока
+            if block['previous_hash'] != self.hash(last_block):
+                return False
+            
+            # Проверяем, является ли подтверждение работы коррекнтым
+            if not self.valid_proof(last_block['proof'], block['proof']):
+                return False
+
+            last_block = block
+            current_index += 1
+
+        return True
+
+    def resolve_conflicts(self):
+        """
+        Это наш алгоритм Консенсуса, он разрешает конфликты,
+        заменяя нашу цепь на самую длинную в цепи
+
+        :return: <bool> True - если мы заменили нашу цепь, False - если нет
+        """
+
+        neighbours = self.nodes
+        new_chain = None
+
+        # Ищем только цепи, длиннее нашей
+        max_length = len(self.chain)
+
+        # Захватываем и проверяем все цепи из всех узлов сети
+        for node in neighbours:
+            response = requests.get(f'http://{node}/chain')
+
+            if response.status_code == 200:
+                length = response.json()['length']
+                chain = response.json()['chain']
+
+                # Проверяем, является ли цепь самой длинной и валидной
+                if length > max_length and self.valid_chain(chain):
+                    max_length = length
+                    new_chain = chain
+
+        # Заменяем нашу цепь, если найдём валидную цепь длиннее
+        if new_chain:
+            self.chain = new_chain
+            return True
+
+        return False
 
     @staticmethod
     def hash(block):

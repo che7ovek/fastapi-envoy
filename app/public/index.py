@@ -1,15 +1,21 @@
 from urllib import response
 from uuid import uuid4
+
 from public.lib.blockchain import Blockchain
 import uvicorn
+import requests
 from fastapi import FastAPI, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
 
 class Transaction(BaseModel):
     sender: str
     recipient: str
     amount: int
+
+class Nodes(BaseModel):
+    nodes: list
 
 app = FastAPI()
 
@@ -86,6 +92,39 @@ def full_chain():
         'length': len(blockchain.chain)
     }
     return JSONResponse(response)
+
+@app.post('/nodes/register')
+def register_nodes(nodes: Nodes, response: Response):
+    values = Nodes.nodes
+    if values is None:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return "Error: Please supply a valid list of nodes"
+
+    for node in values:
+        blockchain.register_node(node)
+
+    response = {
+        'message': "New nodes have been added",
+        'total_nodes': list(blockchain.nodes)
+    }
+    return JSONResponse(response, status.HTTP_201_CREATED)
+
+@app.get('/nodes/resolve')
+def consensus():
+    replaced = blockchain.resolve_conflicts()
+
+    if replaced:
+        response = {
+            'message': "Our chain was replaced",
+            'new_chain': blockchain.chain
+        }
+    else:
+        response = {
+            'message': "Our chain is authoritative",
+            'chain': blockchain.chain
+        }
+
+    return JSONResponse(response, status.HTTP_200_OK)
 
 if __name__ == "__main__":
     uvicorn.run(app, port=8000)
